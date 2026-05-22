@@ -30,6 +30,36 @@ curl_retry() {
 
 cmd_exists() { command -v "$1" &>/dev/null; }
 
+version_ge() {
+  # version_ge "1.2.3" "1.0.0" → true se atual >= mínimo
+  printf '%s\n%s\n' "$2" "$1" | sort -V -C
+}
+
+# ── 0. Diagnóstico ───────────────────────────────────────────────────────────
+
+check_item() {
+  local name="$1" cmd="$2" version
+  version="$(eval "$cmd" 2>/dev/null | head -1 || true)"
+  if [[ -n "$version" ]]; then
+    log "$name: $version"
+  else
+    warn "$name: ausente — vai instalar"
+  fi
+}
+
+run_diagnostics() {
+  step "Diagnóstico do ambiente"
+  check_item "Homebrew"    "brew --version 2>/dev/null | head -1"
+  check_item "Node"        "node --version 2>/dev/null"
+  check_item "Bun"         "bun --version 2>/dev/null"
+  check_item "uv"          "uv --version 2>/dev/null"
+  check_item "Claude Code" "claude --version 2>/dev/null | head -1"
+  check_item "Ollama"      "ollama --version 2>/dev/null | head -1"
+  check_item "Tailscale"   "tailscale version 2>/dev/null | head -1"
+  check_item "wacli"       "wacli --version 2>/dev/null | head -1"
+  check_item "openclaw"    "openclaw --version 2>/dev/null | head -1"
+}
+
 # ── 1. Perfil ─────────────────────────────────────────────────────────────────
 
 check_profile() {
@@ -108,7 +138,15 @@ persist_shellrc_path() {
 
 install_claude_code() {
   step "Claude Code"
-  if cmd_exists claude; then log "Claude Code já instalado"; return; fi
+  local min_version="1.0.0"
+  if cmd_exists claude; then
+    local current
+    current="$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
+    if version_ge "$current" "$min_version"; then
+      log "Claude Code já instalado (v$current ≥ v$min_version)"; return
+    fi
+    warn "Claude Code v$current < v$min_version — atualizando..."
+  fi
   log "Instalando Claude Code..."
   npm install -g @anthropic-ai/claude-code
 }
@@ -131,12 +169,17 @@ install_tailscale() {
 
 install_openclaw_npm() {
   step "OpenClaw"
-  if ! cmd_exists openclaw; then
-    log "Instalando openclaw..."
-    npm install -g openclaw
-  else
-    log "openclaw já instalado"
+  local min_version="2026.5.18"
+  if cmd_exists openclaw; then
+    local current
+    current="$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
+    if version_ge "$current" "$min_version"; then
+      log "openclaw já instalado (v$current ≥ v$min_version)"; return
+    fi
+    warn "openclaw v$current < v$min_version — atualizando..."
   fi
+  log "Instalando openclaw..."
+  npm install -g openclaw
 }
 
 setup_launchd() {
@@ -260,6 +303,10 @@ pull_models_bg() {
 
   {
     for model in nomic-embed-text mxbai-embed-large "qwen2.5:3b" "qwen2.5:7b" "qwen2.5-coder:7b"; do
+      if ollama list 2>/dev/null | grep -q "^${model} "; then
+        echo "[$(date '+%H:%M:%S')] OK: $model (já baixado)"
+        continue
+      fi
       echo "[$(date '+%H:%M:%S')] Baixando $model..."
       ollama pull "$model" \
         && echo "[$(date '+%H:%M:%S')] OK: $model" \
@@ -332,6 +379,7 @@ main() {
   echo ""
 
   check_profile
+  run_diagnostics
   install_homebrew
   install_node
   install_bun
