@@ -1,0 +1,46 @@
+name: Test install.sh on macOS
+
+on:
+  push:
+    paths:
+      - install.sh
+      - profiles/**
+      - shared/**
+  workflow_dispatch:
+
+jobs:
+  test-macos:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [carlos, gabriela]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer in CI mode
+        run: bash install.sh ${{ matrix.profile }} --ci-test
+
+      - name: Validate installations
+        run: |
+          echo "=== Binários ==="
+          command -v node    && node --version
+          command -v bun     && bun --version
+          command -v uv      && uv --version
+          command -v claude  && echo "claude OK"
+          command -v ollama  && echo "ollama OK"
+          command -v tailscale && echo "tailscale OK"
+          command -v openclaw  && echo "openclaw OK"
+          command -v wacli   && echo "wacli OK" || echo "wacli nao instalado (release Windows only?)"
+
+          echo "=== MDs do perfil ==="
+          test -f ~/.claude/CLAUDE.md                      && echo "CLAUDE.md OK"
+          test -f ~/.openclaw/workspace/USER.md            && echo "USER.md OK"
+          test -f ~/.openclaw/workspace/SOUL.md            && echo "SOUL.md OK"
+          test -f ~/.openclaw/workspace/IDENTITY.md        && echo "IDENTITY.md OK"
+
+          echo "=== Perfil correto ==="
+          grep -qi "${{ matrix.profile == 'carlos' && 'Carlos' || 'Gabriela' }}" ~/.claude/CLAUDE.md \
+            && echo "MD corresponde ao perfil ${{ matrix.profile }}" \
+            || { echo "ERRO: MD nao corresponde ao perfil"; exit 1; }

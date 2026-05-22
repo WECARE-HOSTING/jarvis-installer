@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROFILE="${1:-}"
+CI_TEST="${2:-}"
 REPO_RAW="https://raw.githubusercontent.com/WECARE-HOSTING/jarvis-installer/main"
 OLLAMA_LOG="$HOME/ollama-pull.log"
 OPENCLAW_DIR="$HOME/.openclaw"
@@ -36,6 +37,9 @@ check_profile() {
     carlos|gabriela|nicole) log "Perfil: $PROFILE" ;;
     *) err "Perfil inválido: '${PROFILE:-<vazio>}'. Use: carlos, gabriela ou nicole" ;;
   esac
+  if [[ "$CI_TEST" == "--ci-test" ]]; then
+    warn "Modo CI-test: pula auths interativas, launchd, Ollama e WhatsApp"
+  fi
 }
 
 # ── 2. Dependências base ──────────────────────────────────────────────────────
@@ -84,12 +88,16 @@ persist_shellrc_path() {
   local zshrc="$HOME/.zshrc"
   touch "$zshrc"
 
+  # SC2016: aspas simples são intencionais — escreve literais pra expandir no shell do usuário
+  # shellcheck disable=SC2016
   grep -q 'node@24/bin' "$zshrc" || \
     printf '\nexport PATH="$(brew --prefix)/opt/node@24/bin:$PATH"\n' >> "$zshrc"
 
+  # shellcheck disable=SC2016
   grep -q '\.local/bin' "$zshrc" || \
     printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> "$zshrc"
 
+  # shellcheck disable=SC2016
   grep -q 'BUN_INSTALL' "$zshrc" || \
     printf 'export BUN_INSTALL="$HOME/.bun"\nexport PATH="$BUN_INSTALL/bin:$PATH"\n' >> "$zshrc"
 
@@ -300,13 +308,17 @@ print_summary() {
   echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
   echo ""
   log "Perfil   : $PROFILE"
-  log "Gateway  : launchd → $LAUNCHD_LABEL (porta $GATEWAY_PORT)"
-  log "Modelos  : em download → tail -f $OLLAMA_LOG"
-  echo ""
-  echo "Próximos passos:"
-  echo "  1. Aguarde ~30min para os modelos Ollama terminarem"
-  echo "  2. Abra o Terminal e digite: claude"
-  echo "  3. O Jarvis já está configurado com seu perfil"
+  if [[ "$CI_TEST" == "--ci-test" ]]; then
+    warn "Modo CI-test — pulados: auth Claude, auth Tailscale, Ollama, launchd, WhatsApp"
+  else
+    log "Gateway  : launchd → $LAUNCHD_LABEL (porta $GATEWAY_PORT)"
+    log "Modelos  : em download → tail -f $OLLAMA_LOG"
+    echo ""
+    echo "Próximos passos:"
+    echo "  1. Aguarde ~30min para os modelos Ollama terminarem"
+    echo "  2. Abra o Terminal e digite: claude"
+    echo "  3. O Jarvis já está configurado com seu perfil"
+  fi
   echo ""
   warn "Suporte: Felipe — felipe@wecarehosting.com.br"
 }
@@ -330,13 +342,17 @@ main() {
   install_tailscale
   install_wacli
   install_openclaw_npm
-  auth_claude
-  install_claude_mem
-  auth_tailscale
-  pull_models_bg
+  if [[ "$CI_TEST" != "--ci-test" ]]; then
+    auth_claude
+    install_claude_mem
+    auth_tailscale
+    pull_models_bg
+  fi
   download_profile_mds
-  setup_launchd
-  pair_whatsapp
+  if [[ "$CI_TEST" != "--ci-test" ]]; then
+    setup_launchd
+    pair_whatsapp
+  fi
   print_summary
 }
 
